@@ -1,0 +1,24 @@
+[package]
+name = "rsh"
+version = "0.1.0"
+edition = "2021"
+description = "rsh — a shell for RustOS, installed at /bin/rsh"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "rsh"
+path = "src/main.rs"
+
+# rustos-rt is vendored directly into src/rt.rs so we do not need a separate
+# dependency.  It is a staticlib crate whose crate-type prevents it from
+# being used as a regular Rust rlib when listed in [dependencies].
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+strip = true
+lto = true
+codegen-units = 1
+
+[profile.dev]
+panic = "abort"
