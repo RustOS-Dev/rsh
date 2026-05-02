@@ -1109,36 +1109,22 @@ impl Shell {
     }
 
     fn cmd_type(&mut self, args: &[&[u8]]) {
+        let mut any_missing = false;
         for &arg in args {
             if BUILTINS.iter().any(|&b| b == arg) {
                 print!("{} is a shell built-in\n", as_str(arg));
             } else {
-                // Try to find in PATH.
-                let mut found = false;
-                if let Some(path_val) = self.get_var(b"PATH") {
-                    let mut tmp_path_val = [0u8; MAX_VAR_VAL];
-                    let pv_len = path_val.len().min(MAX_VAR_VAL);
-                    tmp_path_val[..pv_len].copy_from_slice(&path_val[..pv_len]);
-                    let pv = &tmp_path_val[..pv_len];
-                    for dir in split_colon(pv) {
-                        let mut full = [0u8; MAX_CWD + 1];
-                        let full_len = join_path(dir, arg, &mut full);
-                        full[full_len] = 0;
-                        if sys::open(&full[..full_len + 1]) >= 0 {
-                            print!("{} is {}\n", as_str(arg), as_str(&full[..full_len]));
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-                if !found {
+                let mut full = [0u8; MAX_CWD + 1];
+                if let Some(full_len) = self.find_in_path(arg, &mut full) {
+                    print!("{} is {}\n", as_str(arg), as_str(&full[..full_len]));
+                } else {
                     println!("{}: not found", as_str(arg));
-                    self.last_status = 1;
+                    any_missing = true;
                 }
             }
         }
         if !args.is_empty() {
-            self.last_status = 0;
+            self.last_status = if any_missing { 1 } else { 0 };
         }
     }
 
@@ -1149,41 +1135,47 @@ impl Shell {
         self.last_status = 1;
     }
 
+    /// Search `$PATH` for `cmd`, writing the matched full path into `out`.
+    /// Returns the matched path length on success.
+    fn find_in_path(&self, cmd: &[u8], out: &mut [u8; MAX_CWD + 1]) -> Option<usize> {
+        let path_val = self.get_var(b"PATH")?;
+        let mut tmp = [0u8; MAX_VAR_VAL];
+        let pv_len = path_val.len().min(MAX_VAR_VAL);
+        tmp[..pv_len].copy_from_slice(&path_val[..pv_len]);
+        let pv = &tmp[..pv_len];
+
+        for dir in split_colon(pv) {
+            let fl = join_path(dir, cmd, out);
+            if fl >= out.len() {
+                continue;
+            }
+            out[fl] = 0;
+            let fd = sys::open(&out[..fl + 1]);
+            if fd >= 0 {
+                sys::close(fd);
+                return Some(fl);
+            }
+        }
+        None
+    }
+
     fn cmd_external(&mut self, cmd: &[u8], _args: &[&[u8]]) {
         // Search PATH for the command.
         let mut found_path = [0u8; MAX_CWD + 1];
-        let mut found_len = 0usize;
-        let mut found = false;
-
-        if cmd.first() == Some(&b'/') {
+        let found_len = if cmd.first() == Some(&b'/') {
             // Absolute path — use directly.
             let n = cmd.len().min(MAX_CWD);
             found_path[..n].copy_from_slice(&cmd[..n]);
-            found_len = n;
-            found = true;
-        } else if let Some(path_val) = self.get_var(b"PATH") {
-            let mut tmp = [0u8; MAX_VAR_VAL];
-            let pv_len = path_val.len().min(MAX_VAR_VAL);
-            tmp[..pv_len].copy_from_slice(&path_val[..pv_len]);
-            let pv = &tmp[..pv_len];
-            for dir in split_colon(pv) {
-                let mut full = [0u8; MAX_CWD + 1];
-                let fl = join_path(dir, cmd, &mut full);
-                full[fl] = 0;
-                if sys::open(&full[..fl + 1]) >= 0 {
-                    found_path[..fl].copy_from_slice(&full[..fl]);
-                    found_len = fl;
-                    found = true;
-                    break;
-                }
-            }
-        }
+            Some(n)
+        } else {
+            self.find_in_path(cmd, &mut found_path)
+        };
 
-        if !found {
+        let Some(found_len) = found_len else {
             println!("{}: command not found", as_str(cmd));
             self.last_status = 127;
             return;
-        }
+        };
 
         found_path[found_len] = 0;
         let code = sys::exec(&found_path[..found_len + 1]);
