@@ -12,7 +12,7 @@ pub const SYS_WRITE: u64 = 1;
 pub const SYS_OPEN: u64 = 2;
 /// Close a file descriptor.
 pub const SYS_CLOSE: u64 = 3;
-/// Execute an ELF binary (RustOS-specific: path + len in rdi/rsi).
+/// Execute an ELF binary (RustOS-specific: NUL-terminated path in rdi).
 pub const SYS_EXEC: u64 = 59;
 /// Terminate the process.
 pub const SYS_EXIT: u64 = 60;
@@ -26,6 +26,12 @@ pub const SYS_GETDENTS64: u64 = 217;
 // ── Open flags ────────────────────────────────────────────────────────────────
 
 pub const O_RDONLY: u32 = 0;
+const EINVAL: i64 = -22;
+
+#[inline]
+fn is_nul_terminated(path: &[u8]) -> bool {
+    path.last() == Some(&0)
+}
 
 // ── Raw syscall shim ──────────────────────────────────────────────────────────
 
@@ -79,6 +85,9 @@ pub fn sys_exit(code: i64) -> ! {
 /// Returns a non-negative fd on success, negative errno on failure.
 #[inline]
 pub fn open(path: &[u8]) -> i64 {
+    if !is_nul_terminated(path) {
+        return EINVAL;
+    }
     unsafe { syscall(SYS_OPEN, path.as_ptr() as u64, O_RDONLY as u64, 0) }
 }
 
@@ -90,11 +99,14 @@ pub fn close(fd: i64) {
     }
 }
 
-/// Execute the ELF binary at `path`.
+/// Execute the ELF binary at `path` (NUL-terminated byte slice).
 /// Returns the exit code on success or a negative error code.
 #[inline]
 pub fn exec(path: &[u8]) -> i64 {
-    unsafe { syscall(SYS_EXEC, path.as_ptr() as u64, path.len() as u64, 0) }
+    if !is_nul_terminated(path) {
+        return EINVAL;
+    }
+    unsafe { syscall(SYS_EXEC, path.as_ptr() as u64, 0, 0) }
 }
 
 /// Fill `buf` with the current working directory string.
@@ -104,11 +116,14 @@ pub fn getcwd(buf: &mut [u8]) -> i64 {
     unsafe { syscall(SYS_GETCWD, buf.as_mut_ptr() as u64, buf.len() as u64, 0) }
 }
 
-/// Change the working directory to `path`.
+/// Change the working directory to `path` (NUL-terminated byte slice).
 /// Returns 0 on success, negative on error.
 #[inline]
 pub fn chdir(path: &[u8]) -> i64 {
-    unsafe { syscall(SYS_CHDIR, path.as_ptr() as u64, path.len() as u64, 0) }
+    if !is_nul_terminated(path) {
+        return EINVAL;
+    }
+    unsafe { syscall(SYS_CHDIR, path.as_ptr() as u64, 0, 0) }
 }
 
 /// Read directory entries from `fd` into `buf`.

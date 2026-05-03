@@ -63,8 +63,9 @@ rustup toolchain install nightly
 rustup component add rust-src --toolchain nightly
 ```
 
-You also need `rust-lld` (bundled with the nightly toolchain) and a network
-connection so Cargo can fetch the `rustos-rt` dependency from GitHub.
+You also need `rust-lld` (bundled with the nightly toolchain). The minimal
+RustOS runtime is vendored in `src/rt.rs`, so there is no external runtime
+dependency to fetch.
 
 ### Compile
 
@@ -105,7 +106,7 @@ args, rax = return value).  The numbers below must be handled by the kernel:
 
 | Number | Name | Used by |
 |--------|------|---------|
-| 0 | `SYS_READ` | stdin input loop |
+| 0 | `SYS_READ` | stdin input loop; `cat` if opened-file reads are supported |
 | 1 | `SYS_WRITE` | all output |
 | 2 | `SYS_OPEN` | `cat`, `ls`, external exec search |
 | 3 | `SYS_CLOSE` | `cat`, `ls` |
@@ -115,9 +116,11 @@ args, rax = return value).  The numbers below must be handled by the kernel:
 | 80 | `SYS_CHDIR` | `cd` (falls back to local tracking) |
 | 217 | `SYS_GETDENTS64` | `ls` |
 
-The current RustOS kernel stubs out `SYS_READ` (returns 0) — rsh busy-waits
-until the kernel implements blocking keyboard reads.  All other unimplemented
-calls return a negative error code and rsh prints a descriptive message.
+Path syscalls use NUL-terminated path strings, matching the current RustOS
+`SYS_OPEN` and `SYS_EXEC` handlers. The current RustOS branch implements
+keyboard reads on fd 0, while opened-file reads, `SYS_GETCWD`, `SYS_CHDIR`, and
+`SYS_GETDENTS64` may still be unavailable; rsh reports unsupported operations
+or falls back to locally tracked state where possible.
 
 ---
 
