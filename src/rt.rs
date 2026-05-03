@@ -25,7 +25,8 @@ pub unsafe extern "C" fn _start() -> ! {
         static mut __bss_start: u8;
         static mut __bss_end: u8;
     }
-    let bss_len = (&raw const __bss_end as usize) - (&raw const __bss_start as usize);
+    let bss_len =
+        (&raw const __bss_end as usize) - (&raw const __bss_start as usize);
     core::ptr::write_bytes(&raw mut __bss_start, 0, bss_len);
 
     let exit_code = main();
