@@ -12,16 +12,27 @@ pub const SYS_WRITE: u64 = 1;
 pub const SYS_OPEN: u64 = 2;
 /// Close a file descriptor.
 pub const SYS_CLOSE: u64 = 3;
+/// Create a pipe: fills pipefd[0] (read end) and pipefd[1] (write end).
+pub const SYS_PIPE: u64 = 22;
+/// Duplicate a file descriptor to a specific number.
+pub const SYS_DUP2: u64 = 33;
 /// Execute an ELF binary (RustOS-specific: NUL-terminated path in rdi).
 pub const SYS_EXEC: u64 = 59;
 /// Terminate the process.
 pub const SYS_EXIT: u64 = 60;
+/// Wait for a child process.
+pub const SYS_WAITPID: u64 = 61;
 /// Get the current working directory.
 pub const SYS_GETCWD: u64 = 79;
 /// Change the current working directory.
 pub const SYS_CHDIR: u64 = 80;
 /// Read directory entries (Linux getdents64 number).
 pub const SYS_GETDENTS64: u64 = 217;
+
+/// Temporary fd used to save stdin while setting up a pipe.
+pub const SAVED_STDIN_FD: i64 = 100;
+/// Temporary fd used to save stdout while setting up a pipe.
+pub const SAVED_STDOUT_FD: i64 = 101;
 
 // ── Open flags ────────────────────────────────────────────────────────────────
 
@@ -164,5 +175,67 @@ pub fn read_byte() -> u8 {
             return b[0];
         }
         core::hint::spin_loop();
+    }
+}
+
+// ── Kernel pipe / dup2 ────────────────────────────────────────────────────────
+
+/// Create a pipe.  On success, `pipefd[0]` is the read end and `pipefd[1]` is
+/// the write end.  Returns 0 on success or a negative error code.
+#[inline]
+pub fn pipe_kernel(pipefd: &mut [i32; 2]) -> i64 {
+    unsafe { syscall(SYS_PIPE, pipefd.as_mut_ptr() as u64, 0, 0) }
+}
+
+/// Duplicate `oldfd` to `newfd`, closing `newfd` first if necessary.
+/// Returns `newfd` on success or a negative error code.
+#[inline]
+pub fn dup2(oldfd: i64, newfd: i64) -> i64 {
+    unsafe { syscall(SYS_DUP2, oldfd as u64, newfd as u64, 0) }
+}
+
+// ── In-process pipe-stdin buffer ──────────────────────────────────────────────
+//
+// When the kernel does not support `pipe`/`dup2`, the shell uses an in-process
+// buffer to forward the stdout of one built-in command to the stdin of the next.
+
+static mut PIPE_STDIN_BUF: [u8; crate::io::PIPE_BUF_SIZE] =
+    [0u8; crate::io::PIPE_BUF_SIZE];
+static mut PIPE_STDIN_LEN: usize = 0;
+static mut PIPE_STDIN_POS: usize = 0;
+
+/// Load `data` into the pipe-stdin buffer so that the next command can read it.
+pub fn pipe_stdin_set(data: &[u8]) {
+    unsafe {
+        let n = data.len().min(crate::io::PIPE_BUF_SIZE);
+        PIPE_STDIN_BUF[..n].copy_from_slice(&data[..n]);
+        PIPE_STDIN_LEN = n;
+        PIPE_STDIN_POS = 0;
+    }
+}
+
+/// Clear the pipe-stdin buffer (called after the pipeline finishes).
+pub fn pipe_stdin_clear() {
+    unsafe {
+        PIPE_STDIN_LEN = 0;
+        PIPE_STDIN_POS = 0;
+    }
+}
+
+/// Returns `true` if there are unread bytes in the pipe-stdin buffer.
+pub fn pipe_stdin_has_data() -> bool {
+    unsafe { PIPE_STDIN_POS < PIPE_STDIN_LEN }
+}
+
+/// Read one byte from the pipe-stdin buffer, or `None` if the buffer is empty.
+pub fn read_pipe_byte() -> Option<u8> {
+    unsafe {
+        if PIPE_STDIN_POS < PIPE_STDIN_LEN {
+            let b = PIPE_STDIN_BUF[PIPE_STDIN_POS];
+            PIPE_STDIN_POS += 1;
+            Some(b)
+        } else {
+            None
+        }
     }
 }
