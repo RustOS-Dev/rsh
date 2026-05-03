@@ -82,6 +82,9 @@ macro_rules! println {
 ///
 /// All other write helpers funnel through this function so that capture mode
 /// works transparently for every built-in command.
+///
+/// When the capture buffer is full, additional bytes are silently discarded.
+/// Increase `PIPE_BUF_SIZE` if pipelines truncate large output.
 #[inline]
 pub fn write_bytes(bs: &[u8]) {
     unsafe {

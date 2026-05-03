@@ -781,6 +781,8 @@ impl Shell {
     /// Execute a single command line that contains no pipeline `|`.
     fn execute_simple(&mut self, line: &[u8]) {
         let line = trim(line);
+        // Handle empty lines and comments defensively (e.g. when called from a
+        // pipeline stage that was left empty or starts with '#').
         if line.is_empty() || line[0] == b'#' {
             return;
         }
@@ -928,6 +930,7 @@ impl Shell {
         // Save current stdin and redirect it to the read end.
         let save_ok = sys::dup2(0, sys::SAVED_STDIN_FD) >= 0;
         if !save_ok {
+            // Cannot save stdin; fall back to plain exec without piped input.
             sys::close(in_pipe[0] as i64);
             return sys::exec(path);
         }
@@ -960,26 +963,36 @@ impl Shell {
             return sys::exec(path);
         }
 
-        if in_ok {
+        // Set up stdin redirection.  Track whether the save actually succeeded so
+        // we only restore when we truly redirected (avoids using an invalid saved fd).
+        let stdin_redirected = if in_ok {
             sys::write_fd(in_pipe[1] as i64, stdin_data);
             sys::close(in_pipe[1] as i64);
-            if sys::dup2(0, sys::SAVED_STDIN_FD) >= 0 {
+            let saved = sys::dup2(0, sys::SAVED_STDIN_FD) >= 0;
+            if saved {
                 sys::dup2(in_pipe[0] as i64, 0);
             } else {
                 sys::close(in_pipe[0] as i64);
             }
-        }
+            saved
+        } else {
+            false
+        };
 
-        if sys::dup2(1, sys::SAVED_STDOUT_FD) >= 0 {
+        // Set up stdout redirection.
+        let stdout_redirected = sys::dup2(1, sys::SAVED_STDOUT_FD) >= 0;
+        if stdout_redirected {
             sys::dup2(out_pipe[1] as i64, 1);
         }
         sys::close(out_pipe[1] as i64);
 
         let code = sys::exec(path);
 
-        // Restore stdout, drain pipe into capture buffer.
-        sys::dup2(sys::SAVED_STDOUT_FD, 1);
-        sys::close(sys::SAVED_STDOUT_FD);
+        // Restore stdout and drain captured output into the active capture buffer.
+        if stdout_redirected {
+            sys::dup2(sys::SAVED_STDOUT_FD, 1);
+            sys::close(sys::SAVED_STDOUT_FD);
+        }
         let mut buf = [0u8; 512];
         loop {
             let n = sys::read_fd(out_pipe[0] as i64, &mut buf);
@@ -990,7 +1003,8 @@ impl Shell {
         }
         sys::close(out_pipe[0] as i64);
 
-        if in_ok {
+        // Restore stdin only if we actually redirected it.
+        if stdin_redirected {
             sys::dup2(sys::SAVED_STDIN_FD, 0);
             sys::close(sys::SAVED_STDIN_FD);
         }
@@ -1401,30 +1415,15 @@ impl Shell {
 
         let code = if capturing && has_pipe_stdin {
             // Both: collect stdin from pipe buffer and capture stdout.
-            // Snapshot the pipe-stdin data before exec clears it.
-            let mut stdin_snap = [0u8; PIPE_BUF_SIZE];
-            let mut snap_len = 0usize;
-            while let Some(b) = sys::read_pipe_byte() {
-                if snap_len < PIPE_BUF_SIZE {
-                    stdin_snap[snap_len] = b;
-                    snap_len += 1;
-                }
-            }
-            self.exec_with_stdin_capturing(path, &stdin_snap[..snap_len])
+            let (snap, snap_len) = drain_pipe_stdin();
+            self.exec_with_stdin_capturing(path, &snap[..snap_len])
         } else if capturing {
             // Only capture stdout (no piped stdin).
             self.exec_capturing(path)
         } else if has_pipe_stdin {
             // Only provide piped stdin (stdout goes to terminal).
-            let mut stdin_snap = [0u8; PIPE_BUF_SIZE];
-            let mut snap_len = 0usize;
-            while let Some(b) = sys::read_pipe_byte() {
-                if snap_len < PIPE_BUF_SIZE {
-                    stdin_snap[snap_len] = b;
-                    snap_len += 1;
-                }
-            }
-            self.exec_with_stdin(path, &stdin_snap[..snap_len])
+            let (snap, snap_len) = drain_pipe_stdin();
+            self.exec_with_stdin(path, &snap[..snap_len])
         } else {
             sys::exec(path)
         };
@@ -1498,6 +1497,21 @@ impl Args {
 
 // ── Pipeline splitting ────────────────────────────────────────────────────────
 
+/// Drain the in-process pipe-stdin buffer into a local array.
+///
+/// Returns `(buffer, length)`.  After this call the pipe-stdin buffer is empty.
+fn drain_pipe_stdin() -> ([u8; PIPE_BUF_SIZE], usize) {
+    let mut snap = [0u8; PIPE_BUF_SIZE];
+    let mut len = 0usize;
+    while let Some(b) = sys::read_pipe_byte() {
+        if len < PIPE_BUF_SIZE {
+            snap[len] = b;
+            len += 1;
+        }
+    }
+    (snap, len)
+}
+
 /// Split `line` on unquoted `|` characters into up to `MAX_PIPE_STAGES` stages.
 ///
 /// Each stage is trimmed of leading/trailing whitespace and written into
@@ -1524,8 +1538,8 @@ fn split_pipeline(
                 i += 1;
             }
             b'\\' if !in_sq => {
-                // Skip the escaped character.
-                i += 2;
+                // Skip the backslash and the char it escapes; don't step past EOL.
+                i += if i + 1 < line.len() { 2 } else { 1 };
             }
             b'|' if !in_sq && !in_dq => {
                 if count < MAX_PIPE_STAGES {
