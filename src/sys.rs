@@ -26,6 +26,7 @@ pub const SYS_GETDENTS64: u64 = 217;
 // ── Open flags ────────────────────────────────────────────────────────────────
 
 pub const O_RDONLY: u32 = 0;
+const EINVAL: i64 = -22;
 
 #[inline]
 fn is_nul_terminated(path: &[u8]) -> bool {
@@ -85,7 +86,7 @@ pub fn sys_exit(code: i64) -> ! {
 #[inline]
 pub fn open(path: &[u8]) -> i64 {
     if !is_nul_terminated(path) {
-        return -22;
+        return EINVAL;
     }
     unsafe { syscall(SYS_OPEN, path.as_ptr() as u64, O_RDONLY as u64, 0) }
 }
@@ -103,7 +104,7 @@ pub fn close(fd: i64) {
 #[inline]
 pub fn exec(path: &[u8]) -> i64 {
     if !is_nul_terminated(path) {
-        return -22;
+        return EINVAL;
     }
     unsafe { syscall(SYS_EXEC, path.as_ptr() as u64, 0, 0) }
 }
@@ -120,7 +121,7 @@ pub fn getcwd(buf: &mut [u8]) -> i64 {
 #[inline]
 pub fn chdir(path: &[u8]) -> i64 {
     if !is_nul_terminated(path) {
-        return -22;
+        return EINVAL;
     }
     unsafe { syscall(SYS_CHDIR, path.as_ptr() as u64, 0, 0) }
 }
