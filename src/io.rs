@@ -1,23 +1,58 @@
 //! I/O utilities: `print!` / `println!` macros and raw byte helpers.
 //!
-//! All output goes through `rustos_rt::sys_write(1, ...)` (stdout).
+//! All output goes through `rustos_rt::sys_write(1, ...)` (stdout), unless
+//! pipe-capture mode is active, in which case output is redirected into an
+//! in-process buffer so it can be piped to the next command.
 
 use core::fmt;
 
+// ── Pipe capture ──────────────────────────────────────────────────────────────
+
+/// Size of the in-process pipe capture buffer (bytes).
+pub const PIPE_BUF_SIZE: usize = 4096;
+
+static mut PIPE_CAPTURE_BUF: [u8; PIPE_BUF_SIZE] = [0u8; PIPE_BUF_SIZE];
+static mut PIPE_CAPTURE_LEN: usize = 0;
+static mut PIPE_CAPTURING: bool = false;
+
+/// Start capturing all subsequent output into the internal pipe buffer.
+/// Resets the buffer length to zero.
+pub fn pipe_capture_start() {
+    unsafe {
+        PIPE_CAPTURING = true;
+        PIPE_CAPTURE_LEN = 0;
+    }
+}
+
+/// Stop capturing and return the bytes that were captured.
+/// The returned slice is valid until the next call to `pipe_capture_start`.
+pub fn pipe_capture_end() -> &'static [u8] {
+    unsafe {
+        PIPE_CAPTURING = false;
+        &PIPE_CAPTURE_BUF[..PIPE_CAPTURE_LEN]
+    }
+}
+
+/// Returns `true` while output is being captured for a pipe.
+pub fn is_capturing() -> bool {
+    unsafe { PIPE_CAPTURING }
+}
+
 // ── Writer ────────────────────────────────────────────────────────────────────
 
-/// A zero-sized type that implements `core::fmt::Write` by forwarding to stdout.
+/// A zero-sized type that implements `core::fmt::Write` by forwarding to
+/// `write_bytes`, which respects the current pipe-capture mode.
 pub struct StdoutWriter;
 
 impl fmt::Write for StdoutWriter {
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        crate::sys::sys_write(1, s.as_bytes());
+        write_bytes(s.as_bytes());
         Ok(())
     }
 }
 
-/// Format `args` and write to stdout.
+/// Format `args` and write to stdout (or the active pipe buffer).
 #[inline]
 pub fn print_fmt(args: fmt::Arguments) {
     use fmt::Write;
@@ -43,22 +78,38 @@ macro_rules! println {
 
 // ── Byte-level helpers ────────────────────────────────────────────────────────
 
-/// Write a single byte to stdout.
-#[inline]
-pub fn write_byte(b: u8) {
-    crate::sys::sys_write(1, core::slice::from_ref(&b));
-}
-
-/// Write a byte slice to stdout.
+/// Write `bs` to stdout, or into the pipe capture buffer if capturing is active.
+///
+/// All other write helpers funnel through this function so that capture mode
+/// works transparently for every built-in command.
+///
+/// When the capture buffer is full, additional bytes are silently discarded.
+/// Increase `PIPE_BUF_SIZE` if pipelines truncate large output.
 #[inline]
 pub fn write_bytes(bs: &[u8]) {
+    unsafe {
+        if PIPE_CAPTURING {
+            let avail = PIPE_BUF_SIZE - PIPE_CAPTURE_LEN;
+            let n = bs.len().min(avail);
+            PIPE_CAPTURE_BUF[PIPE_CAPTURE_LEN..PIPE_CAPTURE_LEN + n]
+                .copy_from_slice(&bs[..n]);
+            PIPE_CAPTURE_LEN += n;
+            return;
+        }
+    }
     crate::sys::sys_write(1, bs);
 }
 
-/// Write a `&str` to stdout.
+/// Write a single byte to stdout (or the active pipe buffer).
+#[inline]
+pub fn write_byte(b: u8) {
+    write_bytes(core::slice::from_ref(&b));
+}
+
+/// Write a `&str` to stdout (or the active pipe buffer).
 #[inline]
 pub fn write_str(s: &str) {
-    crate::sys::sys_write(1, s.as_bytes());
+    write_bytes(s.as_bytes());
 }
 
 // ── Number formatting ─────────────────────────────────────────────────────────
