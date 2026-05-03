@@ -932,9 +932,12 @@ impl Shell {
         // Resolve to an absolute path.
         let mut new_cwd = [0u8; MAX_CWD];
         let new_len = resolve_path(&self.cwd[..self.cwd_len], target, &mut new_cwd);
+        let mut new_cwd_nul = [0u8; MAX_CWD + 1];
+        new_cwd_nul[..new_len].copy_from_slice(&new_cwd[..new_len]);
+        new_cwd_nul[new_len] = 0;
 
         // Try the kernel syscall.
-        let r = sys::chdir(&new_cwd[..new_len]);
+        let r = sys::chdir(&new_cwd_nul[..new_len + 1]);
         if r >= 0 || r == -38 {
             // -38 = ENOSYS (kernel stub not yet implemented) — still update
             // the shell's local CWD so `pwd` and relative paths work.
@@ -1030,7 +1033,12 @@ impl Shell {
             let mut buf = [0u8; CAT_BUF];
             loop {
                 let n = sys::read_fd(fd, &mut buf);
-                if n <= 0 {
+                if n < 0 {
+                    println!("cat: {}: read failed (error {})", as_str(arg), n);
+                    any_error = true;
+                    break;
+                }
+                if n == 0 {
                     break;
                 }
                 io::write_bytes(&buf[..n as usize]);
