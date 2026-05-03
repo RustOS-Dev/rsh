@@ -27,6 +27,11 @@ pub const SYS_GETDENTS64: u64 = 217;
 
 pub const O_RDONLY: u32 = 0;
 
+#[inline]
+fn is_nul_terminated(path: &[u8]) -> bool {
+    path.last() == Some(&0)
+}
+
 // ── Raw syscall shim ──────────────────────────────────────────────────────────
 
 /// Perform a raw RustOS syscall via `int 0x80`.
@@ -79,6 +84,9 @@ pub fn sys_exit(code: i64) -> ! {
 /// Returns a non-negative fd on success, negative errno on failure.
 #[inline]
 pub fn open(path: &[u8]) -> i64 {
+    if !is_nul_terminated(path) {
+        return -22;
+    }
     unsafe { syscall(SYS_OPEN, path.as_ptr() as u64, O_RDONLY as u64, 0) }
 }
 
@@ -94,6 +102,9 @@ pub fn close(fd: i64) {
 /// Returns the exit code on success or a negative error code.
 #[inline]
 pub fn exec(path: &[u8]) -> i64 {
+    if !is_nul_terminated(path) {
+        return -22;
+    }
     unsafe { syscall(SYS_EXEC, path.as_ptr() as u64, 0, 0) }
 }
 
@@ -108,6 +119,9 @@ pub fn getcwd(buf: &mut [u8]) -> i64 {
 /// Returns 0 on success, negative on error.
 #[inline]
 pub fn chdir(path: &[u8]) -> i64 {
+    if !is_nul_terminated(path) {
+        return -22;
+    }
     unsafe { syscall(SYS_CHDIR, path.as_ptr() as u64, 0, 0) }
 }
 
