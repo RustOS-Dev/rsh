@@ -12,4 +12,4 @@ dependencies = [
 [[package]]
 name = "rustos-rt"
 version = "0.1.0"
-source = "git+https://github.com/RustOS-Dev/rustos-rt#f3186c596b99d8ba6f5e6db7255eb8f791348bea"
+source = "git+https://github.com/RustOS-Dev/rustos-rt?rev=f3186c59#f3186c596b99d8ba6f5e6db7255eb8f791348bea"

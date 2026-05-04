@@ -10,7 +10,7 @@ name = "rsh"
 path = "src/main.rs"
 
 [dependencies]
-rustos-rt = { git = "https://github.com/RustOS-Dev/rustos-rt" }
+rustos-rt = { git = "https://github.com/RustOS-Dev/rustos-rt", rev = "f3186c59" }
 
 [profile.release]
 panic = "abort"

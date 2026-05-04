@@ -5,9 +5,9 @@
 
 // Re-export syscall constants and wrappers from rustos-rt
 pub use rustos_rt::{
-    chdir, close, dup2, exec, getcwd, getdents64, open, open_flags, pipe, read_byte, syscall,
-    sys_exit, sys_read, sys_write, waitpid, SYS_CHDIR, SYS_CLOSE, SYS_DUP2, SYS_EXEC,
-    SYS_GETCWD, SYS_GETDENTS64, SYS_OPEN, SYS_PIPE, SYS_READ, SYS_WAITPID, SYS_WRITE, O_RDONLY,
+    chdir, close, dup2, exec, getcwd, getdents64, open, read_byte, syscall, sys_exit, sys_read,
+    sys_write, waitpid, SYS_CHDIR, SYS_CLOSE, SYS_DUP2, SYS_EXEC, SYS_GETCWD, SYS_GETDENTS64,
+    SYS_OPEN, SYS_PIPE, SYS_READ, SYS_WAITPID, SYS_WRITE, O_RDONLY,
 };
 
 /// Temporary fd used to save stdin while setting up a pipe.
@@ -34,7 +34,7 @@ pub fn write_fd(fd: i64, data: &[u8]) -> i64 {
 /// Returns 0 on success or a negative error code.
 #[inline]
 pub fn pipe_kernel(pipefd: &mut [i32; 2]) -> i64 {
-    pipe(pipefd)
+    rustos_rt::pipe(pipefd)
 }
 
 // ── In-process pipe-stdin buffer ──────────────────────────────────────────────
