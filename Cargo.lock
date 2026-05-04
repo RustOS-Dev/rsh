@@ -5,3 +5,11 @@ version = 4
 [[package]]
 name = "rsh"
 version = "0.1.0"
+dependencies = [
+ "rustos-rt",
+]
+
+[[package]]
+name = "rustos-rt"
+version = "0.1.0"
+source = "git+https://github.com/RustOS-Dev/rustos-rt#f3186c596b99d8ba6f5e6db7255eb8f791348bea"
