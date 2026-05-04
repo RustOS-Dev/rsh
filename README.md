@@ -3,7 +3,7 @@
 A shell for [RustOS](https://github.com/0xnullsect0r/RustOS), inspired by
 bash / zsh / fish.  It compiles to a bare-metal ELF executable that the
 RustOS kernel loads from the filesystem and runs in userspace via the
-[rustos-rt](https://github.com/0xnullsect0r/RustOS/tree/rustos-rt) runtime.
+[rustos-rt](https://github.com/RustOS-Dev/rustos-rt) runtime.
 
 Install the binary at **`/bin/rsh`** on a RustOS FAT32 volume.
 
@@ -63,9 +63,10 @@ rustup toolchain install nightly
 rustup component add rust-src --toolchain nightly
 ```
 
-You also need `rust-lld` (bundled with the nightly toolchain). The minimal
-RustOS runtime is vendored in `src/rt.rs`, so there is no external runtime
-dependency to fetch.
+You also need `rust-lld` (bundled with the nightly toolchain). This project
+uses the [rustos-rt](https://github.com/RustOS-Dev/rustos-rt) runtime as a
+Git dependency, which provides the ELF entry point, syscall wrappers, and
+target specification.
 
 ### Compile
 
@@ -126,7 +127,7 @@ or falls back to locally tracked state where possible.
 
 ## Target spec notes
 
-`x86_64-unknown-rustos.json` (copied from the rustos-rt branch):
+`x86_64-unknown-rustos.json` (from the [rustos-rt](https://github.com/RustOS-Dev/rustos-rt) toolchain):
 
 * LLVM target: `x86_64-unknown-none`
 * No SSE / MMX (`-mmx,-sse,+soft-float`) — the kernel does not save FPU state
