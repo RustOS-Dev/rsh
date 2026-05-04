@@ -9,9 +9,8 @@ license = "MIT OR Apache-2.0"
 name = "rsh"
 path = "src/main.rs"
 
-# rustos-rt is vendored directly into src/rt.rs so we do not need a separate
-# dependency.  It is a staticlib crate whose crate-type prevents it from
-# being used as a regular Rust rlib when listed in [dependencies].
+[dependencies]
+rustos-rt = { git = "https://github.com/RustOS-Dev/rustos-rt" }
 
 [profile.release]
 panic = "abort"
