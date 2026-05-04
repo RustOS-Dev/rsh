@@ -127,7 +127,7 @@ or falls back to locally tracked state where possible.
 
 ## Target spec notes
 
-`x86_64-unknown-rustos.json` (from the [rustos-rt](https://github.com/RustOS-Dev/rustos-rt) toolchain):
+`x86_64-unknown-rustos.json` (provided by the [rustos-rt](https://github.com/RustOS-Dev/rustos-rt) toolchain):
 
 * LLVM target: `x86_64-unknown-none`
 * No SSE / MMX (`-mmx,-sse,+soft-float`) — the kernel does not save FPU state
